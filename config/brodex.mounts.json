@@ -1,0 +1,19 @@
+{
+  "$comment": "Host directories Brodex bind-mounts into the container. Edit by hand or with `brodex mount add <hostPath>`. Changes take effect on the next restart.",
+  "image": "brodex:dev",
+  "resources": {
+    "cpus": 4,
+    "memory": "8g",
+    "$comment": "if I later want other limits (e.g. PID caps, swap, GPU), they'd slot in here the same way."
+  },
+  "port": 7878,
+  "$comment-repo": "Add the repo url here and change the key to `repo`",
+  "repo": "https://github.com/siddp274/brodex.git",
+  "mounts": [
+    {
+      "host": "/Users/siddp278/Desktop/projects/DeepCode/DeepCode/workspace",
+      "container": "/workspace",
+      "readOnly": false
+    }
+  ]
+}
