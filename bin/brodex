@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Host launcher shim: runs the Brodex CLI with Bun.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec bun run "${HERE}/../src/index.ts" "$@"
