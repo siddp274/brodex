@@ -395,8 +395,9 @@ a dynamic remount daemon).
 
 ## Container runtimes & environment
 
-The sandbox image is polyglot, so the agent can build and run apps without an
-install dance. Preinstalled:
+The sandbox image is a capable **headless Linux workstation** (Ubuntu 24.04), so
+the agent can build and run a wide range of apps without an install dance.
+Preinstalled:
 
 - **Bun** — runs the Brodex server itself.
 - **Python 3** + pip (install-enabled), `venv`, `pipx`. pip is configured to
@@ -404,10 +405,23 @@ install dance. Preinstalled:
   works — no "externally-managed-environment" error, no venv required.
 - **Node.js 22** + npm (for JS/TS apps; distinct from Bun).
 - **Rust** + cargo (via rustup).
+- **Playwright** with headless **Chromium** preinstalled, for browser
+  automation and scraping JS-heavy sites.
+- **Media:** ffmpeg, imagemagick.
+- **Documents:** pandoc, poppler (PDF tools), libreoffice (headless).
+- Common graphics/font libraries many headless apps need.
 - `build-essential`, `pkg-config`, `git`, `ripgrep`, `curl`.
 
 The agent installs language libraries with the language's own tool (`pip`,
-`npm`, `cargo`) and uses `apt-get` only for OS-level packages. To run a
+`npm`, `cargo`) and uses `apt-get` only for OS-level packages.
+
+**Browsers are headless.** This is a server container with no display, so use
+**Playwright** (preinstalled, Chromium ready) for any web scraping or browser
+automation — it renders to memory and is driven from code, which is what these
+tasks need. Avoid Selenium + Firefox/geckodriver (unreliable on ARM). A *visible*
+GUI desktop isn't included: containers have no screen/GPU, so showing real app
+windows would require a virtual display (Xvfb) + VNC stack — heavy, and
+unnecessary for automation, which only needs the browser engine, not a screen. To run a
 long-lived server it uses the `run_app` tool with a self-contained command (it
 should call binaries directly, e.g. `uvicorn main:app …`, not rely on
 `source venv/bin/activate`).

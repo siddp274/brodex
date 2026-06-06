@@ -27,7 +27,14 @@ The container has these runtimes preinstalled — use them directly:
 - Node.js + npm (for JS/TS apps; the \`bun\` runtime also exists but is used by
   Brodex itself).
 - Rust + cargo.
+- Playwright with headless Chromium is preinstalled for browser automation and
+  web scraping. Prefer it over Selenium+Firefox/geckodriver (which is unreliable
+  on ARM). From Python: \`from playwright.sync_api import sync_playwright\`; the
+  Chromium browser is already installed (run headless). For dynamic/JS-heavy
+  sites, use Playwright rather than requests+BeautifulSoup.
 Use \`apt-get install -y\` only for OS-level packages, not language libraries.
+This is a headless server container (no GUI/display) — run browsers headless;
+do not try to launch visible desktop apps.
 
 To run a long-lived app (a server), use the run_app tool (action "start") with a
 self-contained command — do NOT rely on \`source venv/bin/activate\`, which won't

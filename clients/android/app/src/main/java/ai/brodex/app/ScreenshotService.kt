@@ -24,8 +24,10 @@ class ScreenshotService : Service() {
 
     companion object {
         const val ACTION_SCREENSHOT = "ai.brodex.app.SCREENSHOT"
+        const val ACTION_OPEN_CAPTURE = "ai.brodex.app.OPEN_CAPTURE"
         const val EXTRA_URI = "uri"
         private const val CHANNEL = "brodex_screenshot"
+        private const val CHANNEL_CAPTURE = "brodex_capture"
         private const val NOTIF_ID = 42
     }
 
@@ -52,11 +54,14 @@ class ScreenshotService : Service() {
         val (id, uri) = latest
         if (id != lastSeenId && id > lastSeenId) {
             lastSeenId = id
-            // Broadcast the new screenshot URI to the app.
+            // If the app is open, broadcast so it reacts immediately.
             sendBroadcast(Intent(ACTION_SCREENSHOT).apply {
                 setPackage(packageName)
                 putExtra(EXTRA_URI, uri.toString())
             })
+            // Always post a tappable notification so it works when the app is
+            // backgrounded or closed — tapping opens the annotate flow.
+            postCaptureNotification(uri)
         }
     }
 
@@ -103,6 +108,34 @@ class ScreenshotService : Service() {
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .setOngoing(true)
             .build()
+    }
+
+    private fun postCaptureNotification(uri: Uri) {
+        val nm = getSystemService(NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_CAPTURE, "Brodex screenshot captured", NotificationManager.IMPORTANCE_HIGH)
+            )
+        }
+        // Tapping launches MainActivity with the screenshot URI.
+        val open = Intent(this, MainActivity::class.java).apply {
+            action = ACTION_OPEN_CAPTURE
+            putExtra(EXTRA_URI, uri.toString())
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pi = android.app.PendingIntent.getActivity(
+            this, uri.hashCode(), open,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val notif = NotificationCompat.Builder(this, CHANNEL_CAPTURE)
+            .setContentTitle("Screenshot ready")
+            .setContentText("Tap to ask Brodex about it")
+            .setSmallIcon(android.R.drawable.ic_menu_camera)
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+        nm.notify(uri.hashCode(), notif)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY

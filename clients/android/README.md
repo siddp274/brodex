@@ -21,14 +21,21 @@ app speaks the same HTTP + WebSocket API as the desktop TUI, with token auth.
 
 ### Milestone 2 — screenshot + annotate
 
-- **Screenshot capture:** a background service watches for screenshots you take
-  (Power+VolDown). When you take one, the app grabs it and pops a sheet showing
-  the image.
-- **Annotate:** add instructions by voice or text ("fix this error", "what does
-  this mean?"), then send the **image + instructions** to the agent. The agent
-  sees the actual screenshot (vision input) and acts on it.
-- Works while the app is backgrounded (a foreground service with an ongoing
-  "Watching for screenshots" notification).
+- **Open the app once to "arm" it.** This starts a foreground service (you'll
+  see a "Watching for screenshots" notification) that keeps watching even after
+  you leave the app.
+- **Take a screenshot anywhere** (Power+VolDown) — in an article, a video, any
+  app. The service detects it and posts a **"Screenshot ready — tap to ask
+  Brodex"** notification.
+- **Tap the notification** → Brodex opens with the screenshot, where you add
+  instructions by voice or text and send. The agent **sees the actual image**
+  (vision input) and acts on it. (If the app is already open, the annotate sheet
+  appears immediately.)
+
+**Reliability on Samsung:** the A9+ may kill background services to save battery.
+If screenshots stop being detected after a while, set Brodex to **Unrestricted**
+battery: Settings → Apps → Brodex → Battery → Unrestricted. Re-open the app to
+re-arm the watcher if needed.
 
 ## Prerequisites
 

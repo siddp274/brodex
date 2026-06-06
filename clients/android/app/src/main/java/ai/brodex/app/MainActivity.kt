@@ -38,21 +38,37 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    // Holds a screenshot URI delivered via the capture notification.
+    private val captureUri = androidx.compose.runtime.mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleCaptureIntent(intent)
         val store = SettingsStore(applicationContext)
         val voice = VoiceInput(applicationContext)
         setContent {
             MaterialTheme {
-                BrodexApp(store, voice)
+                BrodexApp(store, voice, captureUri)
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleCaptureIntent(intent)
+    }
+
+    private fun handleCaptureIntent(intent: Intent?) {
+        if (intent?.action == ScreenshotService.ACTION_OPEN_CAPTURE) {
+            intent.getStringExtra(ScreenshotService.EXTRA_URI)?.let { captureUri.value = it }
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BrodexApp(store: SettingsStore, voice: VoiceInput) {
+fun BrodexApp(store: SettingsStore, voice: VoiceInput, captureUri: androidx.compose.runtime.MutableState<String?>? = null) {
     val vm: ChatViewModel = viewModel()
     val ui by vm.ui.collectAsState()
     val scope = rememberCoroutineScope()
@@ -75,6 +91,14 @@ fun BrodexApp(store: SettingsStore, voice: VoiceInput) {
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    // A screenshot delivered via the capture notification (app opened by tap).
+    LaunchedEffect(captureUri?.value) {
+        val uriStr = captureUri?.value ?: return@LaunchedEffect
+        val dataUrl = ImageUtil.toDataUrl(context, Uri.parse(uriStr))
+        if (dataUrl != null) vm.onScreenshotCaptured(dataUrl)
+        captureUri.value = null
+    }
 
     // Receive screenshot URIs broadcast by ScreenshotService; load + attach.
     DisposableEffect(Unit) {
