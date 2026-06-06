@@ -11,14 +11,14 @@
 // "newest first" needs no timestamp sort. Messages persist incrementally as the
 // loop produces them, so an interrupted run is recoverable.
 import { Database } from "bun:sqlite"
-import { resolve, dirname } from "node:path"
-import { fileURLToPath } from "node:url"
+import { resolve } from "node:path"
 import { mkdirSync } from "node:fs"
 import type { Message } from "./types.ts"
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-// brodex/.sessions/brodex.db (two levels up from src/agent/)
-const SESSIONS_DIR = resolve(HERE, "..", "..", ".sessions")
+// Session data is USER data, so it lives under the workspace (with the agent's
+// project files), NOT next to Brodex's source code. Defaults to
+// $BRODEX_WORKSPACE/.brodex/sessions/brodex.db.
+const SESSIONS_DIR = resolve(process.env.BRODEX_WORKSPACE ?? "/workspace", ".brodex", "sessions")
 const DB_PATH = resolve(SESSIONS_DIR, "brodex.db")
 
 export interface SessionInfo {
