@@ -11,11 +11,13 @@ export function StatusBar({
   running,
   mode,
   usage,
+  agent,
 }: {
   threadId: string
   running: boolean
   mode: Mode
   usage: { inputTokens: number; outputTokens: number }
+  agent: string
 }) {
   return (
     <Box justifyContent="space-between" paddingX={1} borderStyle="round" borderColor="gray">
@@ -25,6 +27,8 @@ export function StatusBar({
         <Text>{threadId.slice(0, 16)}</Text>
         <Text dimColor>{"  perms "}</Text>
         <Text color={MODE_COLOR[mode]}>{MODE_LABEL[mode]}</Text>
+        <Text dimColor>{"  agent "}</Text>
+        <Text color="blue">{agent}</Text>
         <Text dimColor>{`  tok ${fmt(usage.inputTokens)}↑/${fmt(usage.outputTokens)}↓`}</Text>
       </Box>
       <Text dimColor>Ctrl+K palette · /permissions · Ctrl+C quit</Text>

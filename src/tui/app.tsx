@@ -11,6 +11,7 @@ import { CommandPalette } from "./components/command-palette.tsx"
 import { SessionDialog } from "./components/session-dialog.tsx"
 import { ApprovalDialog } from "./components/approval-dialog.tsx"
 import { ProjectPicker } from "./components/project-picker.tsx"
+import { AgentDialog } from "./components/agent-dialog.tsx"
 import { useClient } from "./use-client.ts"
 import type { BrodexClient } from "./api-client.ts"
 import type { Mode } from "../agent/permission.ts"
@@ -20,7 +21,7 @@ export interface AppProps {
   initialThreadId?: string
 }
 
-type Overlay = "none" | "palette" | "sessions"
+type Overlay = "none" | "palette" | "sessions" | "agent"
 
 export function App({ client, initialThreadId }: AppProps) {
   const { exit } = useApp()
@@ -28,12 +29,22 @@ export function App({ client, initialThreadId }: AppProps) {
   const [picking, setPicking] = useState(!initialThreadId)
   const [overlay, setOverlay] = useState<Overlay>("none")
   const [mode, setMode] = useState<Mode>("ask")
+  const [agent, setAgent] = useState("build")
 
   const { items, running, usage, pending, lastAssistantText, submit, decideApproval, clearItems, addNote } = useClient({
     client,
     threadId,
     mode,
   })
+
+  // Keep the displayed agent in sync with the active thread.
+  useEffect(() => {
+    if (!threadId) return
+    void client.listSessions().then(({ sessions }) => {
+      const s = sessions.find((x) => x.id === threadId) as { agent?: string } | undefined
+      if (s?.agent) setAgent(s.agent)
+    })
+  }, [threadId, client])
 
   const switchThread = useCallback((id: string) => {
     setThreadId(id)
@@ -68,6 +79,9 @@ export function App({ client, initialThreadId }: AppProps) {
           break
         case "clear":
           clearItems()
+          break
+        case "agent":
+          setOverlay("agent")
           break
         case "permissions":
         case "mode":
@@ -104,6 +118,7 @@ export function App({ client, initialThreadId }: AppProps) {
   useInput((input, key) => {
     if (key.ctrl && input === "k") setOverlay((o) => (o === "palette" ? "none" : "palette"))
     else if (key.ctrl && input === "s") setOverlay((o) => (o === "sessions" ? "none" : "sessions"))
+    else if (key.ctrl && input === "a") setOverlay((o) => (o === "agent" ? "none" : "agent"))
     else if (key.ctrl && input === "c") exit()
     else if (key.escape && overlay !== "none") setOverlay("none")
   })
@@ -140,6 +155,19 @@ export function App({ client, initialThreadId }: AppProps) {
           onClose={() => setOverlay("none")}
         />
       )}
+      {overlay === "agent" && (
+        <AgentDialog
+          client={client}
+          current={agent}
+          onSelect={async (name) => {
+            await client.setAgent(threadId, name)
+            setAgent(name)
+            addNote(`agent → ${name}`)
+            setOverlay("none")
+          }}
+          onClose={() => setOverlay("none")}
+        />
+      )}
       {pending && (
         <ApprovalDialog
           toolName={pending.toolName}
@@ -148,7 +176,7 @@ export function App({ client, initialThreadId }: AppProps) {
         />
       )}
 
-      <StatusBar threadId={threadId} running={running} mode={mode} usage={usage} />
+      <StatusBar threadId={threadId} running={running} mode={mode} usage={usage} agent={agent} />
       <PromptInput
         client={client}
         disabled={running || overlay !== "none" || pending !== null}

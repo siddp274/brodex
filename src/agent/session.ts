@@ -31,6 +31,7 @@ export interface SessionInfo {
   timeCreated: number
   timeUpdated: number
   cwd: string
+  agent: string
 }
 
 // ---- DB bootstrap -----------------------------------------------------------
@@ -58,7 +59,8 @@ function db(): Database {
       tokens_output INTEGER NOT NULL DEFAULT 0,
       time_created  INTEGER NOT NULL,
       time_updated  INTEGER NOT NULL,
-      cwd           TEXT NOT NULL DEFAULT '/workspace'
+      cwd           TEXT NOT NULL DEFAULT '/workspace',
+      agent         TEXT NOT NULL DEFAULT 'build'
     );
     CREATE INDEX IF NOT EXISTS session_parent_idx ON session(parent_id);
     CREATE INDEX IF NOT EXISTS session_updated_idx ON session(time_updated DESC);
@@ -82,6 +84,9 @@ function db(): Database {
     const cols = d.query(`PRAGMA table_info(session)`).all() as Array<{ name: string }>
     if (!cols.some((c) => c.name === "cwd")) {
       d.exec(`ALTER TABLE session ADD COLUMN cwd TEXT NOT NULL DEFAULT '/workspace'`)
+    }
+    if (!cols.some((c) => c.name === "agent")) {
+      d.exec(`ALTER TABLE session ADD COLUMN agent TEXT NOT NULL DEFAULT 'build'`)
     }
   } catch {
     /* ignore */
@@ -116,7 +121,7 @@ export function newThreadId(): string {
 
 // ---- Session CRUD -----------------------------------------------------------
 
-export function createSession(title: string, parentId?: string, cwd = "/workspace"): SessionInfo {
+export function createSession(title: string, parentId?: string, cwd = "/workspace", agent = "build"): SessionInfo {
   const now = Date.now()
   const info: SessionInfo = {
     id: newThreadId(),
@@ -128,13 +133,14 @@ export function createSession(title: string, parentId?: string, cwd = "/workspac
     timeCreated: now,
     timeUpdated: now,
     cwd,
+    agent,
   }
   db()
     .query(
-      `INSERT INTO session (id, parent_id, title, cost, tokens_input, tokens_output, time_created, time_updated, cwd)
-       VALUES (?, ?, ?, 0, 0, 0, ?, ?, ?)`,
+      `INSERT INTO session (id, parent_id, title, cost, tokens_input, tokens_output, time_created, time_updated, cwd, agent)
+       VALUES (?, ?, ?, 0, 0, 0, ?, ?, ?, ?)`,
     )
-    .run(info.id, info.parentId ?? null, info.title, info.timeCreated, info.timeUpdated, info.cwd)
+    .run(info.id, info.parentId ?? null, info.title, info.timeCreated, info.timeUpdated, info.cwd, info.agent)
   return info
 }
 
@@ -160,6 +166,7 @@ function rowToInfo(row: any): SessionInfo {
     timeCreated: row.time_created,
     timeUpdated: row.time_updated,
     cwd: row.cwd ?? "/workspace",
+    agent: row.agent ?? "build",
   }
 }
 
@@ -200,6 +207,11 @@ export function deleteSession(threadId: string): void {
 /** Set a session's working directory (the project dir it's scoped to). */
 export function setSessionCwd(threadId: string, cwd: string): void {
   db().query(`UPDATE session SET cwd = ?, time_updated = ? WHERE id = ?`).run(cwd, Date.now(), threadId)
+}
+
+/** Set a session's active agent. */
+export function setSessionAgent(threadId: string, agent: string): void {
+  db().query(`UPDATE session SET agent = ?, time_updated = ? WHERE id = ?`).run(agent, Date.now(), threadId)
 }
 
 // ---- Messages (append-only) -------------------------------------------------
@@ -255,9 +267,9 @@ export function setActiveThreadId(threadId: string): void {
 
 // ---- Listing ----------------------------------------------------------------
 
-export function listSessions(): Array<Pick<SessionInfo, "id" | "title" | "timeUpdated" | "tokensInput" | "tokensOutput">> {
+export function listSessions(): Array<Pick<SessionInfo, "id" | "title" | "timeUpdated" | "tokensInput" | "tokensOutput" | "agent">> {
   const rows = db()
-    .query(`SELECT id, title, time_updated, tokens_input, tokens_output FROM session ORDER BY time_updated DESC`)
+    .query(`SELECT id, title, time_updated, tokens_input, tokens_output, agent FROM session ORDER BY time_updated DESC`)
     .all() as Array<{ id: string; title: string; time_updated: number; tokens_input: number; tokens_output: number }>
   return rows.map((r) => ({
     id: r.id,
@@ -265,6 +277,7 @@ export function listSessions(): Array<Pick<SessionInfo, "id" | "title" | "timeUp
     timeUpdated: r.time_updated,
     tokensInput: r.tokens_input,
     tokensOutput: r.tokens_output,
+    agent: (r as any).agent ?? "build",
   }))
 }
 

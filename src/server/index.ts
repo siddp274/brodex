@@ -20,6 +20,7 @@ import {
   renameSession,
   deleteSession,
   setSessionCwd,
+  setSessionAgent,
   listSessions,
   getActiveThreadId,
   setActiveThreadId,
@@ -28,6 +29,7 @@ import { searchFiles } from "../agent/file-search.ts"
 import { withMemory } from "../agent/memory.ts"
 import { connectMcpServers, type McpConnection } from "../agent/mcp.ts"
 import { effectiveConfigRoot } from "../agent/config-scope.ts"
+import { listAgents, getAgent, applyAgentTools } from "../agent/registry.ts"
 import type { ServerMessage, ClientMessage } from "./protocol.ts"
 import { WS_PATH } from "./protocol.ts"
 import { readdirSync, mkdirSync, existsSync } from "node:fs"
@@ -113,6 +115,7 @@ async function startRun(sessionId: string, prompt: string, mode: Mode): Promise<
   const cwd = session?.cwd ?? WORKSPACE_ROOT
   const configRoot = effectiveConfigRoot({ root: WORKSPACE_ROOT, cwd })
   const mcpTools = await mcpToolsFor(configRoot)
+  const agentDef = getAgent(session?.agent ?? "build", configRoot) ?? getAgent("build", configRoot)!
 
   const onEvent = (e: LoopEvent) => {
     switch (e.type) {
@@ -140,8 +143,8 @@ async function startRun(sessionId: string, prompt: string, mode: Mode): Promise<
   const history = loadMessages(sessionId)
   activeRun = run({
     provider,
-    tools: [...buildTools(configRoot), ...mcpTools],
-    system: withMemory(SYSTEM_PROMPT, configRoot).prompt,
+    tools: applyAgentTools(agentDef, [...buildTools(configRoot), ...mcpTools]),
+    system: withMemory(agentDef.prompt, configRoot).prompt,
     prompt,
     history,
     ctx: { workspaceRoot: cwd },
@@ -235,6 +238,11 @@ const server = Bun.serve<{ id: string }>({
         setSessionCwd(id, cwd)
         return json({ ok: true, cwd })
       }
+      if (m("POST", /^\/session\/[^/]+\/agent$/)) {
+        const body = (await req.json()) as { agent: string }
+        setSessionAgent(id, body.agent)
+        return json({ ok: true, agent: body.agent })
+      }
       if (m("PATCH", /^\/session\/[^/]+$/)) {
         const body = (await req.json()) as { title: string }
         renameSession(id, body.title)
@@ -246,6 +254,9 @@ const server = Bun.serve<{ id: string }>({
       }
     }
 
+    if (m("GET", /^\/agents$/)) {
+      return json({ agents: listAgents(WORKSPACE_ROOT).map((a) => ({ name: a.name, description: a.description })) })
+    }
     if (m("GET", /^\/projects$/)) {
       const dirs = existsSync(WORKSPACE_ROOT)
         ? readdirSync(WORKSPACE_ROOT, { withFileTypes: true })

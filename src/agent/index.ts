@@ -16,6 +16,7 @@ import { type Mode, SessionGrants } from "./permission.ts"
 import { terminalApprover } from "./approver-terminal.ts"
 import { withMemory } from "./memory.ts"
 import { effectiveConfigRoot } from "./config-scope.ts"
+import { getAgent, applyAgentTools } from "./registry.ts"
 
 // Load brodex/.env into process.env before anything reads provider keys.
 loadEnv()
@@ -70,12 +71,13 @@ function truncate(s: string, n: number): string {
 }
 
 /** Parse --resume <id> / --new / --mode <m> out of argv; the rest is the prompt. */
-function parseArgs(argv: string[]): { resume?: string; fresh: boolean; mode: Mode; cwd?: string; prompt: string } {
+function parseArgs(argv: string[]): { resume?: string; fresh: boolean; mode: Mode; cwd?: string; agentName?: string; prompt: string } {
   const rest: string[] = []
   let resume: string | undefined
   let fresh = false
   let mode: Mode = "ask"
   let cwd: string | undefined
+  let agentName: string | undefined
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--resume") {
       resume = argv[++i]
@@ -86,15 +88,17 @@ function parseArgs(argv: string[]): { resume?: string; fresh: boolean; mode: Mod
       if (m === "ask" || m === "read-only" || m === "full") mode = m
     } else if (argv[i] === "--cwd") {
       cwd = argv[++i]
+    } else if (argv[i] === "--agent") {
+      agentName = argv[++i]
     } else {
       rest.push(argv[i])
     }
   }
-  return { resume, fresh, mode, cwd, prompt: rest.join(" ").trim() }
+  return { resume, fresh, mode, cwd, agentName, prompt: rest.join(" ").trim() }
 }
 
 async function main() {
-  const { resume, fresh, mode, cwd: cwdArg, prompt } = parseArgs(process.argv.slice(2))
+  const { resume, fresh, mode, cwd: cwdArg, agentName, prompt } = parseArgs(process.argv.slice(2))
   if (!prompt) {
     process.stderr.write("usage: bun run src/agent/index.ts [--resume <id> | --new] [--mode ask|read-only|full] <prompt>\n")
     process.exit(2)
@@ -107,6 +111,7 @@ async function main() {
 
   const cwd = cwdArg && cwdArg.startsWith(WORKSPACE_ROOT) ? cwdArg : WORKSPACE_ROOT
   const configRoot = effectiveConfigRoot({ root: WORKSPACE_ROOT, cwd })
+  const agentDef = getAgent(agentName ?? "build", configRoot) ?? getAgent("build", configRoot)!
 
   // Thread selection:
   //   --resume <id>  -> that thread
@@ -124,7 +129,7 @@ async function main() {
     session = getSession(getActiveThreadId()!)!
     process.stderr.write(`brodex: continuing active thread ${session.id}\n`)
   } else {
-    session = createSession(prompt, undefined, cwd)
+    session = createSession(prompt, undefined, cwd, agentDef.name)
     process.stderr.write(`brodex: new thread ${session.id}\n`)
   }
   // Mark this thread active so the next run continues it by default.
@@ -137,8 +142,8 @@ async function main() {
   const provider = createProviderFromEnv()
   await run({
     provider,
-    tools: buildTools(configRoot),
-    system: withMemory(SYSTEM_PROMPT, configRoot).prompt,
+    tools: applyAgentTools(agentDef, buildTools(configRoot)),
+    system: withMemory(agentDef.prompt, configRoot).prompt,
     prompt,
     history,
     ctx: { workspaceRoot: cwd },

@@ -130,21 +130,51 @@ holds the triggering tool name. Output is surfaced in the transcript.
 
 Connect external [MCP](https://modelcontextprotocol.io) tool servers; their
 tools join the agent's toolset (namespaced `<server>__<tool>`) and are
-permission-gated like any tool. Create `.brodex/mcp.json`:
+permission-gated like any tool. Create `.brodex/mcp.json` using the standard MCP
+schema (`mcpServers`, `type: "stdio" | "http"`):
 
 ```json
 {
-  "servers": {
-    "github": { "type": "local", "command": ["npx", "-y", "@modelcontextprotocol/server-github"],
-                "environment": { "GITHUB_TOKEN": "..." } },
-    "docs":   { "type": "remote", "url": "https://example.com/mcp",
-                "headers": { "Authorization": "Bearer ..." } }
+  "mcpServers": {
+    "langchain-docs": { "type": "http", "url": "https://docs.langchain.com/mcp" },
+    "github": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_TOKEN": "..." }
+    }
   }
 }
 ```
 
+`stdio` servers are spawned as a local command; `http` servers connect over
+streamable HTTP (`headers` optional for auth). The legacy `servers` /
+`type:"local"|"remote"` form is still accepted. A server that fails to connect is
+skipped (non-fatal). The default `mcp.json` ships with the LangChain docs server.
+
 `local` servers are spawned over stdio; `remote` servers connect over streamable
 HTTP. A server that fails to connect is skipped (non-fatal).
+
+
+### Agents
+
+An **agent** is a named persona — a system prompt plus an optional tool
+allowlist. Built-ins: **build** (full-access, default) and **plan** (read-only:
+explore and plan, no edits). Switch with `/agent` (or `Ctrl+A`) in the TUI, or
+`--agent <name>` headless; the choice is stored per session.
+
+Define your own in `.brodex/agents/<name>.json`:
+
+```json
+{
+  "name": "reviewer",
+  "description": "Reviews code for security issues",
+  "prompt": "You are a security reviewer. Read diffs and flag risks; do not edit.",
+  "tools": ["read", "glob", "grep"]
+}
+```
+
+Omit `tools` to allow all. A session's active agent persists across resumes.
 
 
 # Reference
@@ -216,6 +246,7 @@ it with `--cwd /workspace/<project>`.
 |---|---|
 | `Ctrl+K` | Open the command palette (filter + run any command) |
 | `Ctrl+S` | Open the session switcher (Enter switch · `n` new · `r` rename · `x` delete · Esc close) |
+| `Ctrl+A` | Choose the active agent (build / plan / custom) |
 | `Ctrl+Y` | Copy the last assistant reply to the clipboard |
 | `@` then text | Fuzzy-search workspace files; `↑/↓`, Tab/Enter to insert the path |
 | `Up` / `Down` | Recall previous prompts (draft history) |
@@ -231,6 +262,7 @@ The status bar shows the active thread, permission mode, and **token usage**
 |---|---|
 | `/new` | Start a fresh thread |
 | `/sessions` / `/resume` | Open the session switcher |
+| `/agent` | Choose the active agent (build / plan / custom) |
 | `/permissions` (or `/mode`) | Cycle permission mode: ask → read-only → full |
 | `/clear` | Clear the transcript view |
 | `/help` | Show keybindings and commands |

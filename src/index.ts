@@ -66,13 +66,15 @@ await yargs(hideBin(process.argv))
         .positional("prompt", { type: "string", demandOption: true, describe: "The task for the agent" })
         .option("resume", { type: "string", describe: "Resume an existing thread by id" })
         .option("new", { type: "boolean", default: false, describe: "Start a fresh thread instead of continuing the active one" })
-        .option("mode", { type: "string", choices: ["ask", "read-only", "full"], describe: "Permission mode (default ask)" }),
+        .option("mode", { type: "string", choices: ["ask", "read-only", "full"], describe: "Permission mode (default ask)" })
+        .option("agent", { type: "string", describe: "Agent persona (build, plan, or a custom name)" }),
     (args) => {
       // Delegate to the agent entry point so its loop/streaming stays in one place.
       const argv = ["run", resolve(BRODEX_ROOT, "src/agent/index.ts")]
       if (args.resume) argv.push("--resume", args.resume as string)
       if (args.new) argv.push("--new")
       if (args.mode) argv.push("--mode", args.mode as string)
+      if (args.agent) argv.push("--agent", args.agent as string)
       argv.push(args.prompt as string)
       const r = spawnSync("bun", argv, { stdio: "inherit" })
       process.exit(r.status ?? 0)

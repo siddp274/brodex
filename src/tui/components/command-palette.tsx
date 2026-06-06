@@ -11,6 +11,7 @@ interface Command {
 const COMMANDS: Command[] = [
   { name: "new", description: "Start a fresh thread" },
   { name: "sessions", description: "Switch between threads" },
+  { name: "agent", description: "Choose the active agent (build / plan / custom)" },
   { name: "permissions", description: "Cycle permission mode (ask / read-only / full)" },
   { name: "clear", description: "Clear the transcript view" },
   { name: "help", description: "Show keybindings and commands" },

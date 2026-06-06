@@ -18,6 +18,7 @@ export interface SessionSummary {
   timeUpdated: number
   tokensInput: number
   tokensOutput: number
+  agent?: string
 }
 
 export interface ListSessionsResponse {

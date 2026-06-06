@@ -58,6 +58,12 @@ export class BrodexClient {
   createProject(name: string): Promise<{ ok: boolean; dir: string; name: string }> {
     return this.req("POST", "/projects", { name })
   }
+  listAgents(): Promise<{ agents: { name: string; description: string }[] }> {
+    return this.req("GET", "/agents")
+  }
+  setAgent(id: string, agent: string): Promise<{ ok: boolean; agent: string }> {
+    return this.req("POST", `/session/${id}/agent`, { agent })
+  }
   messages(id: string): Promise<MessagesResponse> {
     return this.req("GET", `/session/${id}/messages`)
   }
