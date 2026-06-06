@@ -85,7 +85,8 @@ export class BrodexClient {
   connect(onMessage: (m: ServerMessage) => void): Promise<void> {
     this.handlers.add(onMessage)
     if (this.ws) return Promise.resolve()
-    const wsUrl = `ws://${this.config.host}:${this.config.port}${WS_PATH}`
+    const tokenQ = this.config.token ? `?token=${encodeURIComponent(this.config.token)}` : ""
+    const wsUrl = `ws://${this.config.host}:${this.config.port}${WS_PATH}${tokenQ}`
     this.ws = new WebSocket(wsUrl)
     return new Promise((resolve, reject) => {
       if (!this.ws) return reject(new Error("no socket"))

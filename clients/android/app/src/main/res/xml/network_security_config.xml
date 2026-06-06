@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- The Brodex server is reached over a private Tailscale mesh or LAN by IP,
+         so cleartext HTTP is acceptable here. Tighten to your tailnet if desired. -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

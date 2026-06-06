@@ -40,7 +40,16 @@ function toResponsesInput(messages: Message[]): unknown[] {
       }
       continue
     }
-    input.push({ role: m.role, content: m.content ?? "" })
+    // User/system message. If it has images, emit a content array with
+    // input_text + input_image parts (Responses API vision format).
+    if (m.role === "user" && m.images && m.images.length > 0) {
+      const parts: unknown[] = []
+      if (m.content) parts.push({ type: "input_text", text: m.content })
+      for (const img of m.images) parts.push({ type: "input_image", image_url: img.url })
+      input.push({ role: "user", content: parts })
+    } else {
+      input.push({ role: m.role, content: m.content ?? "" })
+    }
   }
   return input
 }

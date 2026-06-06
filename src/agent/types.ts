@@ -13,11 +13,19 @@ export interface ToolCall {
   arguments: string
 }
 
+/** An image attached to a message (a data URL: data:image/png;base64,...). */
+export interface ImageAttachment {
+  /** data URL or remote URL the provider can fetch. */
+  url: string
+}
+
 /** One message in the conversation. */
 export interface Message {
   role: Role
   /** Text content (assistant/user/system). */
   content?: string
+  /** Images attached to a user message (vision input). */
+  images?: ImageAttachment[]
   /** Tool calls requested by the assistant. */
   toolCalls?: ToolCall[]
   /** For role:"tool" — which call this answers. */

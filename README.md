@@ -345,6 +345,18 @@ bun install                   # install Brodex's host-side deps
 
 The agent needs an LLM provider configured in `.env` (see Azure setup below).
 
+Once the sandbox is up, open the TUI and ask it to build something — the
+polyglot image means it can install and run apps itself:
+
+```
+brodex tui
+› create a FastAPI app with two GET endpoints and run it
+```
+
+It will write the file, `pip install fastapi uvicorn`, and start the server with
+the `run_app` tool. To reach an app's port from your Mac, publish it (only the
+agent server's port is published by default — see Resource limits / mounts).
+
 ### Sessions (resumable threads)
 
 Sessions are stored in **SQLite** (`.sessions/brodex.db`, via Bun's built-in
@@ -380,6 +392,133 @@ brodex up        # restarts with the new directory mounted
 
 This is the deliberate, native-Docker model (chosen over a broad parent mount or
 a dynamic remount daemon).
+
+## Container runtimes & environment
+
+The sandbox image is polyglot, so the agent can build and run apps without an
+install dance. Preinstalled:
+
+- **Bun** — runs the Brodex server itself.
+- **Python 3** + pip (install-enabled), `venv`, `pipx`. pip is configured to
+  install directly (`PIP_BREAK_SYSTEM_PACKAGES=1`), so `pip install fastapi` just
+  works — no "externally-managed-environment" error, no venv required.
+- **Node.js 22** + npm (for JS/TS apps; distinct from Bun).
+- **Rust** + cargo (via rustup).
+- `build-essential`, `pkg-config`, `git`, `ripgrep`, `curl`.
+
+The agent installs language libraries with the language's own tool (`pip`,
+`npm`, `cargo`) and uses `apt-get` only for OS-level packages. To run a
+long-lived server it uses the `run_app` tool with a self-contained command (it
+should call binaries directly, e.g. `uvicorn main:app …`, not rely on
+`source venv/bin/activate`).
+
+## Code delivery: dev vs clone mode
+
+How Brodex's own code gets into the container is controlled by `config/brodex.mounts.json`:
+
+- **Clone mode** (set `"repo"` and `"ref"`): the container `git clone`s Brodex to
+  `/app` on start. Reproducible and deployment-ready. **Changes take effect only
+  after you commit + push to that branch and recreate the container.**
+- **Dev fallback** (no `repo`): the launcher mounts your local source read-only at
+  `/brodex` and runs from it. Your latest local code runs immediately — no push
+  needed. Best for development.
+
+```jsonc
+// clone mode
+{ "repo": "https://github.com/you/brodex.git", "ref": "dev-tui", ... }
+// dev mode: just omit "repo"/"ref"
+```
+
+## Updating Brodex (when to rebuild vs restart)
+
+Three levels of "apply my changes", from cheapest to most thorough:
+
+| You changed… | Do this |
+|---|---|
+| Agent/server/TUI **code** (dev mode) | Just restart the run — mounted source is read live. |
+| Agent/server/TUI **code** (clone mode) | `git push`, then `brodex down --rm && brodex up`. |
+| **Dependencies** (`package.json`) | Recreate the container so `bun install` reruns: `brodex down --rm && brodex up`. In clone mode, commit `package.json` **and** `bun.lock` first. |
+| The **Dockerfile / base image** (e.g. new language) | Rebuild the image: `brodex down --rm && brodex up --rebuild`. |
+
+```bash
+# regenerate the lockfile after changing deps (run on your Mac)
+rm -rf node_modules bun.lock && bun install
+
+# clone-mode update + recreate
+git add -A && git commit -m "…" && git push origin dev-tui
+./bin/brodex down --rm && ./bin/brodex up
+
+# rebuild after a Dockerfile/base-image change
+./bin/brodex down --rm && ./bin/brodex up --rebuild
+```
+
+## Where data lives
+
+- **Session history** (SQLite) → `<workspace>/.brodex/sessions/brodex.db`. It
+  lives with your workspace data (not the code), so it persists across container
+  rebuilds and is gitignored.
+- **Per-project config** (`AGENTS.md`, `.brodex/skills|hooks.json|mcp.json|agents/`)
+  → in the workspace (or a project subdir). Seeded with defaults on first start.
+- **Provider keys** → host `.env`, injected into the container at creation. Never
+  committed, never baked into the image.
+
+## Remote access (phone / tablet clients)
+
+The agent server is just an HTTP + WebSocket API, so any device on the network
+can be a client. Access is gated by a bearer token.
+
+Prompts can include **images** (vision input): the `POST /session/:id/prompt`
+body accepts an optional `images: string[]` of data URLs, forwarded to the model
+as image content (requires a vision-capable model, e.g. the GPT-4.1 family). The
+Android client uses this for its screenshot feature.
+
+### Enable the token
+
+Add to `brodex/.env` (generate one with `openssl rand -hex 24`):
+
+```
+BRODEX_AUTH_TOKEN=<long-random-string>
+```
+
+Recreate the container so it's injected:
+
+```bash
+./bin/brodex down --rm && ./bin/brodex up
+```
+
+When the token is set, **every** request must carry it:
+- HTTP: header `Authorization: Bearer <token>`
+- WebSocket: as a query param — `ws://host:7878/ws?token=<token>` (handshakes
+  can't set headers). The header form is also accepted.
+
+With no token set, the server is open (local-only convenience).
+
+### Same-Wi‑Fi LAN
+
+Docker publishes the port on all interfaces, so the server is reachable at your
+Mac's LAN IP once it's up.
+
+```bash
+ipconfig getifaddr en0                     # your Mac's Wi-Fi IP, e.g. 192.168.1.42
+curl -H "Authorization: Bearer <token>" http://192.168.1.42:7878/health
+# -> {"ok":true}
+```
+
+From a tablet/phone on the same Wi‑Fi, point the client at
+`http://<mac-lan-ip>:7878`. If it hangs, allow incoming connections in
+System Settings → Network → Firewall (or disable the firewall to test).
+
+### Remote (from anywhere) — Tailscale
+
+For access off your home network, use [Tailscale](https://tailscale.com) (a
+private mesh VPN — no port-forwarding, no public exposure):
+
+1. Install Tailscale on the Mac and the tablet; sign into the same account.
+2. Find the Mac's Tailscale IP (`tailscale ip -4`, e.g. `100.x.y.z`).
+3. Point the client at `http://100.x.y.z:7878` with the token.
+
+The tablet then reaches the agent the same way whether at home or away. The token
+stays required, so the endpoint is never open to the public internet.
 
 ## Configuration
 

@@ -34,6 +34,8 @@ export interface PromptRequest {
   prompt: string
   /** Optional: override permission mode for this run. */
   mode?: Mode
+  /** Optional image data URLs (vision input). */
+  images?: string[]
 }
 
 export interface RenameRequest {

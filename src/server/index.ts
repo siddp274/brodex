@@ -104,7 +104,7 @@ function wsApprover(sessionId: string) {
 
 let activeRun: Promise<unknown> | null = null
 
-async function startRun(sessionId: string, prompt: string, mode: Mode): Promise<void> {
+async function startRun(sessionId: string, prompt: string, mode: Mode, images?: string[]): Promise<void> {
   if (activeRun) await activeRun.catch(() => {})
   const provider = createProviderFromEnv()
   broadcast({ type: "run_started", sessionId })
@@ -146,6 +146,7 @@ async function startRun(sessionId: string, prompt: string, mode: Mode): Promise<
     tools: applyAgentTools(agentDef, [...buildTools(configRoot), ...mcpTools]),
     system: withMemory(agentDef.prompt, configRoot).prompt,
     prompt,
+    images: images && images.length ? images.map((url) => ({ url })) : undefined,
     history,
     ctx: { workspaceRoot: cwd },
     mode,
@@ -179,6 +180,13 @@ function authed(req: Request): boolean {
   return header === `Bearer ${AUTH_TOKEN}`
 }
 
+/** WS handshakes can't set headers easily; accept the token as ?token= too. */
+function authedWs(req: Request, url: URL): boolean {
+  if (!AUTH_TOKEN) return true
+  if (authed(req)) return true
+  return url.searchParams.get("token") === AUTH_TOKEN
+}
+
 // ---- server -----------------------------------------------------------------
 
 const server = Bun.serve<{ id: string }>({
@@ -188,6 +196,7 @@ const server = Bun.serve<{ id: string }>({
 
     // WebSocket upgrade.
     if (url.pathname === WS_PATH) {
+      if (!authedWs(req, url)) return new Response("unauthorized", { status: 401 })
       if (srv.upgrade(req, { data: { id: crypto.randomUUID() } })) return undefined as unknown as Response
       return new Response("websocket upgrade failed", { status: 400 })
     }
@@ -221,11 +230,11 @@ const server = Bun.serve<{ id: string }>({
         return json({ messages: loadMessages(id) })
       }
       if (m("POST", /^\/session\/[^/]+\/prompt$/)) {
-        const body = (await req.json()) as { prompt: string; mode?: Mode }
-        if (!body.prompt?.trim()) return json({ error: "empty prompt" }, 400)
+        const body = (await req.json()) as { prompt: string; mode?: Mode; images?: string[] }
+        if (!body.prompt?.trim() && !(body.images && body.images.length)) return json({ error: "empty prompt" }, 400)
         setActiveThreadId(id)
         // Fire the run; stream goes over WS. Respond immediately.
-        void startRun(id, body.prompt, body.mode ?? "ask")
+        void startRun(id, body.prompt ?? "", body.mode ?? "ask", body.images)
         return json({ ok: true })
       }
       if (m("POST", /^\/session\/[^/]+\/mode$/)) {

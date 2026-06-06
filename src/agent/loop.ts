@@ -20,6 +20,8 @@ export interface RunOptions {
   system: string
   /** New user prompt for this run. */
   prompt: string
+  /** Optional images attached to this prompt (vision input). */
+  images?: { url: string }[]
   ctx: ToolContext
   /** Prior conversation to continue (from a resumed session). Empty for new. */
   history?: Message[]
@@ -78,7 +80,10 @@ export async function run(opts: RunOptions): Promise<Message[]> {
 
   const toolDefs = tools.map(toToolDefinition)
   // Continue prior history (if resuming) and append the new prompt.
-  const messages: Message[] = [...(opts.history ?? []), { role: "user", content: prompt }]
+  const messages: Message[] = [
+    ...(opts.history ?? []),
+    { role: "user", content: prompt, images: opts.images && opts.images.length ? opts.images : undefined },
+  ]
   persist(messages)
 
   for (let step = 0; step < maxSteps; step++) {
