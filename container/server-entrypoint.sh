@@ -36,5 +36,10 @@ if [ ! -f "${marker}" ] || [ "$(cat "${marker}" 2>/dev/null)" != "${current}" ];
   echo "${current}" > "${marker}"
 fi
 
+# Seed default .brodex config into the workspace (idempotent).
+if [ -f "${APP_DIR}/container/seed-defaults.sh" ]; then
+  bash "${APP_DIR}/container/seed-defaults.sh" || true
+fi
+
 echo "brodex-server: starting on :${BRODEX_PORT:-7000}" >&2
 exec bun run "${APP_DIR}/src/server/index.ts"

@@ -30,6 +30,7 @@ export interface SessionInfo {
   tokensOutput: number
   timeCreated: number
   timeUpdated: number
+  cwd: string
 }
 
 // ---- DB bootstrap -----------------------------------------------------------
@@ -56,7 +57,8 @@ function db(): Database {
       tokens_input  INTEGER NOT NULL DEFAULT 0,
       tokens_output INTEGER NOT NULL DEFAULT 0,
       time_created  INTEGER NOT NULL,
-      time_updated  INTEGER NOT NULL
+      time_updated  INTEGER NOT NULL,
+      cwd           TEXT NOT NULL DEFAULT '/workspace'
     );
     CREATE INDEX IF NOT EXISTS session_parent_idx ON session(parent_id);
     CREATE INDEX IF NOT EXISTS session_updated_idx ON session(time_updated DESC);
@@ -75,6 +77,15 @@ function db(): Database {
       value TEXT NOT NULL
     );
   `)
+  // Migration: add cwd to older session tables that predate it.
+  try {
+    const cols = d.query(`PRAGMA table_info(session)`).all() as Array<{ name: string }>
+    if (!cols.some((c) => c.name === "cwd")) {
+      d.exec(`ALTER TABLE session ADD COLUMN cwd TEXT NOT NULL DEFAULT '/workspace'`)
+    }
+  } catch {
+    /* ignore */
+  }
   _db = d
   return d
 }
@@ -105,7 +116,7 @@ export function newThreadId(): string {
 
 // ---- Session CRUD -----------------------------------------------------------
 
-export function createSession(title: string, parentId?: string): SessionInfo {
+export function createSession(title: string, parentId?: string, cwd = "/workspace"): SessionInfo {
   const now = Date.now()
   const info: SessionInfo = {
     id: newThreadId(),
@@ -116,13 +127,14 @@ export function createSession(title: string, parentId?: string): SessionInfo {
     tokensOutput: 0,
     timeCreated: now,
     timeUpdated: now,
+    cwd,
   }
   db()
     .query(
-      `INSERT INTO session (id, parent_id, title, cost, tokens_input, tokens_output, time_created, time_updated)
-       VALUES (?, ?, ?, 0, 0, 0, ?, ?)`,
+      `INSERT INTO session (id, parent_id, title, cost, tokens_input, tokens_output, time_created, time_updated, cwd)
+       VALUES (?, ?, ?, 0, 0, 0, ?, ?, ?)`,
     )
-    .run(info.id, info.parentId ?? null, info.title, info.timeCreated, info.timeUpdated)
+    .run(info.id, info.parentId ?? null, info.title, info.timeCreated, info.timeUpdated, info.cwd)
   return info
 }
 
@@ -147,6 +159,7 @@ function rowToInfo(row: any): SessionInfo {
     tokensOutput: row.tokens_output,
     timeCreated: row.time_created,
     timeUpdated: row.time_updated,
+    cwd: row.cwd ?? "/workspace",
   }
 }
 
@@ -182,6 +195,11 @@ export function deleteSession(threadId: string): void {
   if (active && active.value === threadId) {
     d.query(`DELETE FROM meta WHERE key = 'active'`).run()
   }
+}
+
+/** Set a session's working directory (the project dir it's scoped to). */
+export function setSessionCwd(threadId: string, cwd: string): void {
+  db().query(`UPDATE session SET cwd = ?, time_updated = ? WHERE id = ?`).run(cwd, Date.now(), threadId)
 }
 
 // ---- Messages (append-only) -------------------------------------------------

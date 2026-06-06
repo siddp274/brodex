@@ -4,6 +4,7 @@
 import type { Message, Provider } from "./types.ts"
 import { type AnyTool, runTool, toToolDefinition, type ToolContext } from "./tool.ts"
 import { type Approver, type Mode, SessionGrants, resolveEffect } from "./permission.ts"
+import { runHooks, beforeEventFor, afterEventFor } from "./hooks.ts"
 
 export interface LoopEvent {
   type: "assistant_text" | "tool_call" | "tool_result" | "done" | "error" | "denied"
@@ -45,6 +46,13 @@ export async function run(opts: RunOptions): Promise<Message[]> {
   const grants = opts.grants ?? new SessionGrants()
   const emit = (e: LoopEvent) => opts.onEvent?.(e)
   const persist = (m: Message[]) => opts.onPersist?.(m)
+
+  // Surface hook output as note events so the user sees what ran.
+  const emitHooks = (results: ReturnType<typeof runHooks>, e: typeof emit) => {
+    for (const h of results) {
+      e({ type: "tool_result", toolName: `hook:${h.event}`, toolResult: `$ ${h.command}\n${h.output || "(no output)"}` })
+    }
+  }
 
   // Decide whether a tool call may run. Returns the tool result string if the
   // call was blocked (denied), or undefined if it may proceed.
@@ -95,6 +103,7 @@ export async function run(opts: RunOptions): Promise<Message[]> {
 
     // No tool calls -> the model is done.
     if (res.toolCalls.length === 0) {
+      emitHooks(runHooks("after_run", { workspaceRoot: ctx.workspaceRoot }), emit)
       emit({ type: "done" })
       return messages
     }
@@ -109,7 +118,17 @@ export async function run(opts: RunOptions): Promise<Message[]> {
         result = `error: unknown tool "${call.name}"`
       } else {
         const blocked = await gate(call.name, call.arguments)
-        result = blocked ?? (await runTool(tool, call.arguments, ctx))
+        if (blocked) {
+          result = blocked
+        } else {
+          // before-hooks (e.g. before_shell).
+          const beforeEvent = beforeEventFor(call.name)
+          if (beforeEvent) emitHooks(runHooks(beforeEvent, { workspaceRoot: ctx.workspaceRoot, toolName: call.name }), emit)
+          result = await runTool(tool, call.arguments, ctx)
+          // after-hooks (e.g. after_write / after_edit).
+          const afterEvent = afterEventFor(call.name)
+          if (afterEvent) emitHooks(runHooks(afterEvent, { workspaceRoot: ctx.workspaceRoot, toolName: call.name }), emit)
+        }
       }
 
       emit({ type: "tool_result", toolName: call.name, toolResult: result })

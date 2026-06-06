@@ -9,7 +9,7 @@ environment and only sees the directories you mount as `/workspace`.
 Built in TypeScript/Bun, using [opencode](https://github.com/anomalyco/opencode)
 as a per-feature reference.
 
-## Status: Phases 0–3 done (MVP complete)
+## Status: Phases 0–4 done
 
 - **Phase 0 — host/container split + lifecycle.** Persistent, host-managed
   sandbox container, customizable workspace volume, resource limits.
@@ -53,6 +53,100 @@ runs, pass `--mode`:
 ./bin/brodex agent --mode full "run the whole test suite and fix failures"
 ```
 
+## Extensibility (Phase 4)
+
+All four live in the workspace under `/workspace` and load automatically; the
+agent server (inside the container) reads them on each run.
+
+**Defaults are seeded on container start.** The first time the container comes
+up, Brodex creates starter `.brodex/` config in the workspace if it's missing —
+an `AGENTS.md`, a `.brodex/memory.md`, a sample `example` skill, an empty
+`hooks.json`, and an `mcp.json` pre-wired with the **LangChain docs** MCP server
+(remote HTTP, `https://docs.langchain.com/mcp`). Seeding is idempotent: your
+edits are never overwritten.
+
+### Projects & per-project config
+
+A session has a **working directory** (cwd). When you start a new thread in the
+TUI, a picker asks how to scope it:
+
+1. **Use an existing project** under `/workspace` (e.g. `projectA`)
+2. **Create a new project** (you name it; the directory is created)
+3. **No project** — chat with the barebone agent (cwd = `/workspace`)
+
+The cwd is **stored on the session**, so resuming a thread keeps its project.
+Headless runs set it with `--cwd /workspace/projectA`.
+
+Config resolution is **deeper-replaces**: if the project dir has its own
+`.brodex/` (skills, hooks, mcp, memory), Brodex uses *that* and ignores the
+root's for that config type. A project without a given config falls back to the
+workspace root. So `workspace/projectA/.brodex/skills` fully replaces
+`workspace/.brodex/skills` for sessions scoped to `projectA`.
+
+### Memory / project instructions
+
+On every run the server prepends these files (if present) to the system prompt:
+`AGENTS.md`, `CLAUDE.md`, and `.brodex/memory.md`. Use them for conventions,
+build commands, and gotchas. The agent can also save durable notes itself with
+the **`remember`** tool, which appends to `.brodex/memory.md`.
+
+### Skills
+
+Reusable workflows. Create `.brodex/skills/<name>/SKILL.md`:
+
+```markdown
+---
+name: review-pr
+description: Review a pull request for correctness and security
+---
+# Review checklist
+1. Read the diff.
+2. Check for missing tests.
+3. Flag any secrets or unsafe shell calls.
+```
+
+The agent sees available skills in the **`skill`** tool's description and loads
+one (injecting its body) when a task matches.
+
+### Hooks
+
+Shell commands that run around tool calls. Create `.brodex/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "after_write":  ["prettier -w \"$BRODEX_TOOL\""],
+    "after_edit":   ["bun run lint"],
+    "before_shell": ["echo running a command…"],
+    "after_run":    ["bun test"]
+  }
+}
+```
+
+Each command runs from the workspace root inside the container; `$BRODEX_TOOL`
+holds the triggering tool name. Output is surfaced in the transcript.
+
+### MCP servers
+
+Connect external [MCP](https://modelcontextprotocol.io) tool servers; their
+tools join the agent's toolset (namespaced `<server>__<tool>`) and are
+permission-gated like any tool. Create `.brodex/mcp.json`:
+
+```json
+{
+  "servers": {
+    "github": { "type": "local", "command": ["npx", "-y", "@modelcontextprotocol/server-github"],
+                "environment": { "GITHUB_TOKEN": "..." } },
+    "docs":   { "type": "remote", "url": "https://example.com/mcp",
+                "headers": { "Authorization": "Bearer ..." } }
+  }
+}
+```
+
+`local` servers are spawned over stdio; `remote` servers connect over streamable
+HTTP. A server that fails to connect is skipped (non-fatal).
+
+
 # Reference
 
 ## CLI commands (host side)
@@ -73,7 +167,7 @@ Run as `./bin/brodex <command>` (or `brodex <command>` if on your PATH).
 
 | Command | Args / options | What it does |
 |---|---|---|
-| `brodex agent <prompt>` | `--resume <id>`, `--new`, `--mode <ask\|read-only\|full>` | Run the agent headlessly on a task. Loop runs on the host; tools exec in the sandbox. |
+| `brodex agent <prompt>` | `--resume <id>`, `--new`, `--mode <ask\|read-only\|full>`, `--cwd <dir>` | Run the agent headlessly on a task. `--cwd` scopes it to a project dir under `/workspace`. |
 | `brodex tui` | `--resume <id>`, `--new` | Open the interactive TUI. |
 | `brodex sessions` | — | List saved threads (newest first), with token usage. |
 | `brodex session rename <id> <title>` | — | Rename a thread. |
@@ -109,6 +203,12 @@ In headless `agent` runs, an approval prompt appears on the terminal:
 ./bin/brodex tui --new           # start a fresh thread
 ./bin/brodex tui --resume ses_…  # open a specific thread
 ```
+
+On a **new thread**, the TUI shows a project picker: use an existing project
+dir under `/workspace`, create a new one, or start a barebone chat (no project).
+The choice sets the session's working directory, which scopes its tools and
+`.brodex` config (see *Projects & per-project config* above). Headless runs set
+it with `--cwd /workspace/<project>`.
 
 **Keybindings**
 

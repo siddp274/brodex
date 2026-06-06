@@ -49,8 +49,14 @@ export class BrodexClient {
   listSessions(): Promise<ListSessionsResponse> {
     return this.req("GET", "/sessions")
   }
-  createSession(title?: string): Promise<CreateSessionResponse> {
-    return this.req("POST", "/session", { title })
+  createSession(title?: string, cwd?: string): Promise<CreateSessionResponse> {
+    return this.req("POST", "/session", { title, cwd })
+  }
+  listProjects(): Promise<{ root: string; projects: string[] }> {
+    return this.req("GET", "/projects")
+  }
+  createProject(name: string): Promise<{ ok: boolean; dir: string; name: string }> {
+    return this.req("POST", "/projects", { name })
   }
   messages(id: string): Promise<MessagesResponse> {
     return this.req("GET", `/session/${id}/messages`)

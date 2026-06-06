@@ -12,7 +12,7 @@
   "ref": "dev-tui",
   "mounts": [
     {
-      "host": "/Users/siddp278/Desktop/projects/DeepCode/DeepCode/workspace",
+      "host": "/Users/siddp278/Desktop/projects/workspace",
       "container": "/workspace",
       "readOnly": false
     }

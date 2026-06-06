@@ -7,7 +7,7 @@ import { loadEnv } from "../agent/env.ts"
 loadEnv()
 
 import { run, type LoopEvent } from "../agent/loop.ts"
-import { TOOLS } from "../agent/tools/all.ts"
+import { buildTools } from "../agent/tools/all.ts"
 import { createProviderFromEnv } from "../agent/provider.ts"
 import { type Mode, type Decision, SessionGrants } from "../agent/permission.ts"
 import {
@@ -19,17 +19,36 @@ import {
   touchSession,
   renameSession,
   deleteSession,
+  setSessionCwd,
   listSessions,
   getActiveThreadId,
   setActiveThreadId,
 } from "../agent/session.ts"
 import { searchFiles } from "../agent/file-search.ts"
+import { withMemory } from "../agent/memory.ts"
+import { connectMcpServers, type McpConnection } from "../agent/mcp.ts"
+import { effectiveConfigRoot } from "../agent/config-scope.ts"
 import type { ServerMessage, ClientMessage } from "./protocol.ts"
 import { WS_PATH } from "./protocol.ts"
+import { readdirSync, mkdirSync, existsSync } from "node:fs"
+import { resolve as pathResolve } from "node:path"
 
 const PORT = Number(process.env.BRODEX_PORT ?? 7000)
 const AUTH_TOKEN = process.env.BRODEX_AUTH_TOKEN // optional; enforced only if set
 const WORKSPACE_ROOT = process.env.BRODEX_WORKSPACE ?? "/workspace"
+
+// MCP connections are cached per effective config root (workspace or project),
+// so per-project MCP servers work and we don't reconnect every run.
+const mcpCache = new Map<string, McpConnection[]>()
+async function mcpToolsFor(configRoot: string): Promise<import("../agent/tool.ts").AnyTool[]> {
+  let conns = mcpCache.get(configRoot)
+  if (!conns) {
+    conns = await connectMcpServers(configRoot)
+    mcpCache.set(configRoot, conns)
+    if (conns.length) process.stderr.write(`brodex-agent: connected ${conns.length} MCP server(s) for ${configRoot}\n`)
+  }
+  return conns.flatMap((c) => c.tools)
+}
 
 const SYSTEM_PROMPT = `You are Brodex, an autonomous coding agent running natively inside an isolated
 Linux container. Use your tools to read/write/edit files under /workspace, run
@@ -88,6 +107,13 @@ async function startRun(sessionId: string, prompt: string, mode: Mode): Promise<
   const provider = createProviderFromEnv()
   broadcast({ type: "run_started", sessionId })
 
+  // Resolve per-project scope: the session's cwd (a project dir or the root)
+  // determines where tools operate and which .brodex config applies.
+  const session = getSession(sessionId)
+  const cwd = session?.cwd ?? WORKSPACE_ROOT
+  const configRoot = effectiveConfigRoot({ root: WORKSPACE_ROOT, cwd })
+  const mcpTools = await mcpToolsFor(configRoot)
+
   const onEvent = (e: LoopEvent) => {
     switch (e.type) {
       case "assistant_text":
@@ -114,11 +140,11 @@ async function startRun(sessionId: string, prompt: string, mode: Mode): Promise<
   const history = loadMessages(sessionId)
   activeRun = run({
     provider,
-    tools: TOOLS,
-    system: SYSTEM_PROMPT,
+    tools: [...buildTools(configRoot), ...mcpTools],
+    system: withMemory(SYSTEM_PROMPT, configRoot).prompt,
     prompt,
     history,
-    ctx: { workspaceRoot: WORKSPACE_ROOT },
+    ctx: { workspaceRoot: cwd },
     mode,
     grants,
     approver: wsApprover(sessionId),
@@ -176,10 +202,11 @@ const server = Bun.serve<{ id: string }>({
     }
 
     if (m("POST", /^\/session$/)) {
-      const body = (await req.json().catch(() => ({}))) as { title?: string }
-      const s = createSession(body.title ?? "New session")
+      const body = (await req.json().catch(() => ({}))) as { title?: string; cwd?: string }
+      const cwd = body.cwd && body.cwd.startsWith(WORKSPACE_ROOT) ? body.cwd : WORKSPACE_ROOT
+      const s = createSession(body.title ?? "New session", undefined, cwd)
       setActiveThreadId(s.id)
-      return json({ id: s.id, title: s.title })
+      return json({ id: s.id, title: s.title, cwd: s.cwd })
     }
 
     // /session/:id ...
@@ -202,6 +229,12 @@ const server = Bun.serve<{ id: string }>({
         // Mode is per-run here; accept and store nothing persistent for now.
         return json({ ok: true })
       }
+      if (m("POST", /^\/session\/[^/]+\/cwd$/)) {
+        const body = (await req.json()) as { cwd: string }
+        const cwd = body.cwd && body.cwd.startsWith(WORKSPACE_ROOT) ? body.cwd : WORKSPACE_ROOT
+        setSessionCwd(id, cwd)
+        return json({ ok: true, cwd })
+      }
       if (m("PATCH", /^\/session\/[^/]+$/)) {
         const body = (await req.json()) as { title: string }
         renameSession(id, body.title)
@@ -213,6 +246,22 @@ const server = Bun.serve<{ id: string }>({
       }
     }
 
+    if (m("GET", /^\/projects$/)) {
+      const dirs = existsSync(WORKSPACE_ROOT)
+        ? readdirSync(WORKSPACE_ROOT, { withFileTypes: true })
+            .filter((e) => e.isDirectory() && !e.name.startsWith("."))
+            .map((e) => e.name)
+        : []
+      return json({ root: WORKSPACE_ROOT, projects: dirs })
+    }
+    if (m("POST", /^\/projects$/)) {
+      const body = (await req.json()) as { name: string }
+      const name = (body.name ?? "").replace(/[^A-Za-z0-9._-]/g, "")
+      if (!name) return json({ error: "invalid project name" }, 400)
+      const dir = pathResolve(WORKSPACE_ROOT, name)
+      mkdirSync(dir, { recursive: true })
+      return json({ ok: true, dir, name })
+    }
     if (m("GET", /^\/files$/)) {
       const q = url.searchParams.get("q") ?? ""
       return json({ files: searchFiles(q, 8, WORKSPACE_ROOT) })

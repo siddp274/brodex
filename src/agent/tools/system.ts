@@ -4,6 +4,7 @@
 import { z } from "zod"
 import { spawnSync } from "node:child_process"
 import { defineTool, type AnyTool } from "../tool.ts"
+import { rememberNote } from "../memory.ts"
 
 interface ShResult {
   stdout: string
@@ -143,4 +144,18 @@ function tail(s: string, n: number): string {
   return lines.slice(-n).join("\n")
 }
 
-export const SYSTEM_TOOLS: AnyTool[] = [sysstat, processes, service, pkg]
+
+const remember = defineTool({
+  name: "remember",
+  description:
+    "Save a durable note to the project's memory (.brodex/memory.md in the workspace). Use for facts worth recalling in future sessions: build commands, conventions, gotchas, decisions. Keep notes short and factual.",
+  parameters: z.object({
+    note: z.string().describe("The fact or instruction to remember"),
+  }),
+  async execute(args, ctx) {
+    rememberNote(args.note, ctx.workspaceRoot)
+    return `remembered: ${args.note}`
+  },
+})
+
+export const SYSTEM_TOOLS: AnyTool[] = [sysstat, processes, service, pkg, remember]

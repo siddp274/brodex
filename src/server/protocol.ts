@@ -9,6 +9,7 @@ import type { Message } from "../agent/types.ts"
 export interface CreateSessionResponse {
   id: string
   title: string
+  cwd?: string
 }
 
 export interface SessionSummary {

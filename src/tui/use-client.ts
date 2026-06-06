@@ -83,6 +83,7 @@ export function useClient({ client, threadId, mode }: UseClientArgs) {
 
   // Load history + usage when the active thread changes.
   useEffect(() => {
+    if (!threadId) return
     let cancelled = false
     void (async () => {
       const [{ messages }, { sessions }] = await Promise.all([client.messages(threadId), client.listSessions()])

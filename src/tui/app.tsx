@@ -10,20 +10,22 @@ import { StatusBar } from "./components/status-bar.tsx"
 import { CommandPalette } from "./components/command-palette.tsx"
 import { SessionDialog } from "./components/session-dialog.tsx"
 import { ApprovalDialog } from "./components/approval-dialog.tsx"
+import { ProjectPicker } from "./components/project-picker.tsx"
 import { useClient } from "./use-client.ts"
 import type { BrodexClient } from "./api-client.ts"
 import type { Mode } from "../agent/permission.ts"
 
 export interface AppProps {
   client: BrodexClient
-  initialThreadId: string
+  initialThreadId?: string
 }
 
 type Overlay = "none" | "palette" | "sessions"
 
 export function App({ client, initialThreadId }: AppProps) {
   const { exit } = useApp()
-  const [threadId, setThreadId] = useState(initialThreadId)
+  const [threadId, setThreadId] = useState(initialThreadId ?? "")
+  const [picking, setPicking] = useState(!initialThreadId)
   const [overlay, setOverlay] = useState<Overlay>("none")
   const [mode, setMode] = useState<Mode>("ask")
 
@@ -38,10 +40,20 @@ export function App({ client, initialThreadId }: AppProps) {
     setOverlay("none")
   }, [])
 
-  const startNewThread = useCallback(async () => {
-    const s = await client.createSession()
-    switchThread(s.id)
-  }, [client, switchThread])
+  const startNewThread = useCallback(() => {
+    setPicking(true)
+  }, [])
+
+  // Called by the picker once the user chose how to scope the session.
+  const onProjectChosen = useCallback(
+    async (cwd: string) => {
+      const title = cwd === "/workspace" ? "New session" : cwd.split("/").pop() ?? "New session"
+      const s = await client.createSession(title, cwd)
+      setPicking(false)
+      switchThread(s.id)
+    },
+    [client, switchThread],
+  )
 
   const handleSlashCommand = useCallback(
     (cmd: string) => {
@@ -95,6 +107,14 @@ export function App({ client, initialThreadId }: AppProps) {
     else if (key.ctrl && input === "c") exit()
     else if (key.escape && overlay !== "none") setOverlay("none")
   })
+
+  if (picking) {
+    return (
+      <Box flexDirection="column" width="100%" height="100%" padding={1}>
+        <ProjectPicker client={client} onChosen={onProjectChosen} />
+      </Box>
+    )
+  }
 
   return (
     <Box flexDirection="column" width="100%" height="100%">

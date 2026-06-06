@@ -10,10 +10,12 @@
 //   bun run src/agent/index.ts [--resume <thread-id>] <prompt>
 import { loadEnv } from "./env.ts"
 import { run, type LoopEvent } from "./loop.ts"
-import { TOOLS } from "./tools/all.ts"
+import { buildTools } from "./tools/all.ts"
 import { createProviderFromEnv } from "./provider.ts"
 import { type Mode, SessionGrants } from "./permission.ts"
 import { terminalApprover } from "./approver-terminal.ts"
+import { withMemory } from "./memory.ts"
+import { effectiveConfigRoot } from "./config-scope.ts"
 
 // Load brodex/.env into process.env before anything reads provider keys.
 loadEnv()
@@ -68,11 +70,12 @@ function truncate(s: string, n: number): string {
 }
 
 /** Parse --resume <id> / --new / --mode <m> out of argv; the rest is the prompt. */
-function parseArgs(argv: string[]): { resume?: string; fresh: boolean; mode: Mode; prompt: string } {
+function parseArgs(argv: string[]): { resume?: string; fresh: boolean; mode: Mode; cwd?: string; prompt: string } {
   const rest: string[] = []
   let resume: string | undefined
   let fresh = false
   let mode: Mode = "ask"
+  let cwd: string | undefined
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--resume") {
       resume = argv[++i]
@@ -81,15 +84,17 @@ function parseArgs(argv: string[]): { resume?: string; fresh: boolean; mode: Mod
     } else if (argv[i] === "--mode") {
       const m = argv[++i]
       if (m === "ask" || m === "read-only" || m === "full") mode = m
+    } else if (argv[i] === "--cwd") {
+      cwd = argv[++i]
     } else {
       rest.push(argv[i])
     }
   }
-  return { resume, fresh, mode, prompt: rest.join(" ").trim() }
+  return { resume, fresh, mode, cwd, prompt: rest.join(" ").trim() }
 }
 
 async function main() {
-  const { resume, fresh, mode, prompt } = parseArgs(process.argv.slice(2))
+  const { resume, fresh, mode, cwd: cwdArg, prompt } = parseArgs(process.argv.slice(2))
   if (!prompt) {
     process.stderr.write("usage: bun run src/agent/index.ts [--resume <id> | --new] [--mode ask|read-only|full] <prompt>\n")
     process.exit(2)
@@ -99,6 +104,9 @@ async function main() {
     process.stderr.write("brodex: sandbox is not running. Start it first with `brodex up`.\n")
     process.exit(1)
   }
+
+  const cwd = cwdArg && cwdArg.startsWith(WORKSPACE_ROOT) ? cwdArg : WORKSPACE_ROOT
+  const configRoot = effectiveConfigRoot({ root: WORKSPACE_ROOT, cwd })
 
   // Thread selection:
   //   --resume <id>  -> that thread
@@ -116,24 +124,24 @@ async function main() {
     session = getSession(getActiveThreadId()!)!
     process.stderr.write(`brodex: continuing active thread ${session.id}\n`)
   } else {
-    session = createSession(prompt)
+    session = createSession(prompt, undefined, cwd)
     process.stderr.write(`brodex: new thread ${session.id}\n`)
   }
   // Mark this thread active so the next run continues it by default.
   setActiveThreadId(session.id)
   process.stderr.write(`brodex: (resume explicitly with  brodex agent --resume ${session.id} "<prompt>" ; start fresh with --new)\n`)
 
-  process.stderr.write(`brodex: permission mode = ${mode}\n`)
+  process.stderr.write(`brodex: permission mode = ${mode}, cwd = ${cwd}\n`)
 
   const history = loadMessages(session.id)
   const provider = createProviderFromEnv()
   await run({
     provider,
-    tools: TOOLS,
-    system: SYSTEM_PROMPT,
+    tools: buildTools(configRoot),
+    system: withMemory(SYSTEM_PROMPT, configRoot).prompt,
     prompt,
     history,
-    ctx: { workspaceRoot: WORKSPACE_ROOT },
+    ctx: { workspaceRoot: cwd },
     mode,
     grants: new SessionGrants(),
     approver: terminalApprover,

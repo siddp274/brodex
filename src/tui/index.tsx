@@ -36,20 +36,14 @@ async function main() {
     process.exit(1)
   }
 
-  // Decide the initial thread: resume id, fresh, or the server's active thread.
-  let initialThreadId: string
+  // Decide the initial thread: resume id, or the server's active thread.
+  // If none (or --new), leave it undefined so the App shows the project picker.
+  let initialThreadId: string | undefined
   if (resume) {
     initialThreadId = resume
-  } else {
+  } else if (!fresh) {
     const { sessions, activeId } = await client.listSessions()
-    if (!fresh && activeId) {
-      initialThreadId = activeId
-    } else if (!fresh && sessions.length > 0) {
-      initialThreadId = sessions[0].id
-    } else {
-      const s = await client.createSession()
-      initialThreadId = s.id
-    }
+    initialThreadId = activeId ?? sessions[0]?.id
   }
 
   const app = render(<App client={client} initialThreadId={initialThreadId} />)
